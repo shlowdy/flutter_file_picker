@@ -23,6 +23,7 @@
 @property (nonatomic) BOOL loadDataToMemory;
 @property (nonatomic) BOOL allowCompression;
 @property (nonatomic) dispatch_group_t group;
+@property (nonatomic) BOOL isDirectory;
 @end
 
 @implementation FilePickerPlugin
@@ -162,11 +163,11 @@
 
 #ifdef PICKER_DOCUMENT
 - (void)resolvePickDocumentWithMultiPick:(BOOL)allowsMultipleSelection pickDirectory:(BOOL)isDirectory {
-    
+    self.isDirectory = isDirectory;
     @try{
         self.documentPickerController = [[UIDocumentPickerViewController alloc]
                                          initWithDocumentTypes: isDirectory ? @[@"public.folder"] : self.allowedExtensions
-                                         inMode: isDirectory ? UIDocumentPickerModeOpen : UIDocumentPickerModeImport];
+                                         inMode: UIDocumentPickerModeOpen];
     } @catch (NSException * e) {
         Log(@"Couldn't launch documents file picker. Probably due to iOS version being below 11.0 and not having the iCloud entitlement. If so, just make sure to enable it for your app in Xcode. Exception was: %@", e);
         _result = nil;
@@ -369,7 +370,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls{
     
     [self.documentPickerController dismissViewControllerAnimated:YES completion:nil];
     
-    if(controller.documentPickerMode == UIDocumentPickerModeOpen) {
+    if(self.isDirectory) {
         _result([urls objectAtIndex:0].path);
         _result = nil;
         return;
