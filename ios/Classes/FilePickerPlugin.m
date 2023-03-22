@@ -167,7 +167,7 @@
     @try{
         self.documentPickerController = [[UIDocumentPickerViewController alloc]
                                          initWithDocumentTypes: isDirectory ? @[@"public.folder"] : self.allowedExtensions
-                                         inMode: UIDocumentPickerModeOpen];
+                                         inMode: isDirectory ? UIDocumentPickerModeOpen : UIDocumentPickerModeImport];
     } @catch (NSException * e) {
         Log(@"Couldn't launch documents file picker. Probably due to iOS version being below 11.0 and not having the iCloud entitlement. If so, just make sure to enable it for your app in Xcode. Exception was: %@", e);
         _result = nil;
