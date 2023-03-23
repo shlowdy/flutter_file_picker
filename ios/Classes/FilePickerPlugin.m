@@ -193,7 +193,7 @@
 #ifdef PHPicker
     if (@available(iOS 14, *)) {
         PHPickerConfiguration *config = [[PHPickerConfiguration alloc] init];
-        config.filter = type == IMAGE ? [PHPickerFilter imagesFilter] : type == VIDEO ? [PHPickerFilter videosFilter] : [PHPickerFilter anyFilterMatchingSubfilters:@[[PHPickerFilter videosFilter], [PHPickerFilter imagesFilter]]];
+        config.filter = type == IMAGE ? [PHPickerFilter anyFilterMatchingSubfilters:@[[PHPickerFilter livePhotosFilter], [PHPickerFilter imagesFilter]]] : type == VIDEO ? [PHPickerFilter videosFilter] : [PHPickerFilter anyFilterMatchingSubfilters:@[[PHPickerFilter videosFilter], [PHPickerFilter imagesFilter], [PHPickerFilter livePhotosFilter]]];
         config.preferredAssetRepresentationMode = self.allowCompression ? PHPickerConfigurationAssetRepresentationModeCompatible : PHPickerConfigurationAssetRepresentationModeCurrent;
         
         if(multiPick) {
@@ -208,45 +208,11 @@
     }
 #endif
     
-    if(multiPick) {
-        [self resolveMultiPickFromGallery:type withCompressionAllowed:allowCompression];
-        return;
-    }
-    
-    NSArray<NSString*> * videoTypes = @[(NSString*)kUTTypeMovie, (NSString*)kUTTypeAVIMovie, (NSString*)kUTTypeVideo, (NSString*)kUTTypeMPEG4];
-    NSArray<NSString*> * imageTypes = @[(NSString *)kUTTypeImage];
-    
-    self.galleryPickerController = [[UIImagePickerController alloc] init];
-    self.galleryPickerController.delegate = self;
-    self.galleryPickerController.presentationController.delegate = self;
-    self.galleryPickerController.videoQuality = UIImagePickerControllerQualityTypeHigh;
-    
-    switch (type) {
-        case IMAGE:
-            self.galleryPickerController.mediaTypes = imageTypes;
-            if (@available(iOS 11.0, *)) {
-                self.galleryPickerController.imageExportPreset = allowCompression ? UIImagePickerControllerImageURLExportPresetCompatible : UIImagePickerControllerImageURLExportPresetCurrent;
-            }
-            break;
-            
-        case VIDEO:
-            self.galleryPickerController.mediaTypes = videoTypes;
-            if (@available(iOS 11.0, *)) {
-                self.galleryPickerController.videoExportPreset = allowCompression ? AVAssetExportPresetHighestQuality : AVAssetExportPresetPassthrough;
-            }
-            break;
-            
-        default:
-            self.galleryPickerController.mediaTypes = [videoTypes arrayByAddingObjectsFromArray:imageTypes];
-            break;
-    }
-    
-    [[self viewControllerWithWindow:nil] presentViewController:self.galleryPickerController animated:YES completion:nil];
-    
-    
+    [self resolveMultiPickFromGallery:type multi:multiPick withCompressionAllowed:allowCompression];
+    return;
 }
 
-- (void) resolveMultiPickFromGallery:(MediaType)type withCompressionAllowed:(BOOL)allowCompression {
+- (void) resolveMultiPickFromGallery:(MediaType)type multi:(BOOL)multiPick withCompressionAllowed:(BOOL)allowCompression {
     DKImagePickerController * dkImagePickerController = [[DKImagePickerController alloc] init];
     
     UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"" message:@"" preferredStyle:UIAlertControllerStyleAlert];
@@ -276,6 +242,7 @@
     dkImagePickerController.showsCancelButton = YES;
     dkImagePickerController.sourceType = DKImagePickerControllerSourceTypePhoto;
     dkImagePickerController.assetType = type == VIDEO ? DKImagePickerControllerAssetTypeAllVideos : type == IMAGE ? DKImagePickerControllerAssetTypeAllPhotos : DKImagePickerControllerAssetTypeAllAssets;
+    dkImagePickerController.singleSelect = !multiPick;
     
     // Export status changed
     [dkImagePickerController setExportStatusChanged:^(enum DKImagePickerControllerExportStatus status) {
@@ -310,10 +277,15 @@
     // Did select
     [dkImagePickerController setDidSelectAssets:^(NSArray<DKAsset*> * __nonnull DKAssets) {
         NSMutableArray<NSURL*>* paths = [[NSMutableArray<NSURL*> alloc] init];
-        
+        NSFileManager *manager = NSFileManager.defaultManager;
         for(DKAsset * asset in DKAssets) {
             if(asset.localTemporaryPath.absoluteURL != nil) {
-                [paths addObject:asset.localTemporaryPath.absoluteURL];
+                NSURL *target = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:asset.fileName]];
+                if ([manager fileExistsAtPath:target.path]) {
+                    [manager removeItemAtURL:target error:nil];
+                }
+                [manager moveItemAtURL:asset.localTemporaryPath.absoluteURL toURL:target error:nil];
+                [paths addObject:target];
             }
         }
         
@@ -354,11 +326,6 @@
 #pragma mark - Delegates
 
 #ifdef PICKER_DOCUMENT
-// DocumentPicker delegate - iOS 10 only
-- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url{
-    [self.documentPickerController dismissViewControllerAnimated:YES completion:nil];
-    [self handleResult:url];
-}
 
 // DocumentPicker delegate
 - (void)documentPicker:(UIDocumentPickerViewController *)controller
@@ -374,9 +341,22 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls{
         _result([urls objectAtIndex:0].path);
         _result = nil;
         return;
+    } else {
+        NSFileManager *manager = NSFileManager.defaultManager;
+        NSMutableArray *result = [NSMutableArray array];
+        for (NSURL *url in urls) {
+            NSString *name = url.lastPathComponent;
+            NSURL *target = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:name]];
+            if ([manager fileExistsAtPath:target.path]) {
+                [manager removeItemAtURL:target error:nil];
+            }
+            BOOL moved = [manager moveItemAtURL:url toURL:target error:nil];
+            if (moved) {
+                [result addObject:target];
+            }
+        }
+        [self handleResult:result];
     }
-    
-    [self handleResult: urls];
 }
 #endif // PICKER_DOCUMENT
 
@@ -395,10 +375,10 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls{
         if(pickedVideoUrl != nil) {
             NSString * fileName = [pickedVideoUrl lastPathComponent];
             NSURL * destination = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:fileName]];
-            
+
             if([[NSFileManager defaultManager] isReadableFileAtPath: [pickedVideoUrl path]]) {
                 Log(@"Caching video file for iOS 13 or above...");
-                [[NSFileManager defaultManager] copyItemAtURL:pickedVideoUrl toURL:destination error:nil];
+                [[NSFileManager defaultManager] moveItemAtURL:pickedVideoUrl toURL:destination error:nil];
                 pickedVideoUrl = destination;
             }
         } else {
@@ -519,7 +499,7 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls{
                 cachedUrl = [NSURL fileURLWithPath: cachedFile];
                 
                 NSError *copyError;
-                [fileManager copyItemAtURL: url
+                [fileManager moveItemAtURL: url
                                      toURL: cachedUrl
                                      error: &copyError];
                 
