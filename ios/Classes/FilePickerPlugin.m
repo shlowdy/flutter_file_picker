@@ -1,6 +1,7 @@
 #import "FilePickerPlugin.h"
 #import "FileUtils.h"
 #import "ImageUtils.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #ifdef PICKER_MEDIA
 @import DKImagePickerController;
@@ -411,120 +412,95 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls{
 
 #ifdef PHPicker
 
--(void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14)){
-    
-    if(_result == nil) {
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14)) {
+    if (_result == nil) {
         return;
     }
-    
-    if(self.group != nil) {
+    if (self.group != nil) {
         return;
     }
-    
     Log(@"Picker:%@ didFinishPicking:%@", picker, results);
-    
     [picker dismissViewControllerAnimated:YES completion:nil];
-    
-    if(results.count == 0) {
+    if (results.count == 0) {
         Log(@"FilePicker canceled");
         _result(nil);
         _result = nil;
         return;
     }
-    
-    NSMutableArray<NSURL *> * urls = [[NSMutableArray alloc] initWithCapacity:results.count];
-    
+    NSMutableArray<NSURL *> *urls = [[NSMutableArray alloc] initWithCapacity:results.count];
     self.group = dispatch_group_create();
-    
-    if(self->_eventSink != nil) {
-        self->_eventSink([NSNumber numberWithBool:YES]);
+    if (self->_eventSink != nil) {
+        self->_eventSink(@YES);
     }
-    
-    __block NSError * blockError;
-    
+    __block NSError *blockError;
+    NSFileManager *fileManager = NSFileManager.defaultManager;
     for (PHPickerResult *result in results) {
         dispatch_group_enter(_group);
-        [result.itemProvider loadFileRepresentationForTypeIdentifier:@"public.item" completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
-            
-            if(url == nil) {
+        [result.itemProvider loadFileRepresentationForTypeIdentifier:UTTypeItem.identifier completionHandler:^(NSURL *url, NSError *error) {
+            if (url == nil) {
                 blockError = error;
                 Log("Could not load the picked given file: %@", blockError);
                 dispatch_group_leave(self->_group);
                 return;
             }
-            
-            NSString * filename = url.lastPathComponent;
-            NSString * extension = [filename pathExtension];
-            NSFileManager * fileManager = [[NSFileManager alloc] init];
-            NSURL * cachedUrl;
-            
-            // Check for live photos
-            if(self.allowCompression && [extension isEqualToString:@"pvt"]) {
-                NSArray * files = [fileManager contentsOfDirectoryAtURL:url includingPropertiesForKeys:@[] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
-                
-                for (NSURL * item in files) {
-                    
-                    if (UTTypeConformsTo(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, CFBridgingRetain([item pathExtension]), NULL), kUTTypeImage)) {
-                        NSData *assetData = [NSData dataWithContentsOfURL:item];
-                        //Convert any type of image to jpeg
-                        NSData *convertedImageData = UIImageJPEGRepresentation([UIImage imageWithData:assetData], 1.0);
-                        //Get meta data from asset
-                        NSDictionary *metaData = [ImageUtils getMetaDataFromImageData:assetData];
-                        //Append meta data into jpeg of live photo
-                        NSData *data = [ImageUtils imageFromImage:convertedImageData withMetaData:metaData];
-                        //Save jpeg
-                        NSString * filenameWithoutExtension = [filename stringByDeletingPathExtension];
-                        NSString * tmpFile = [NSTemporaryDirectory() stringByAppendingPathComponent:[filenameWithoutExtension stringByAppendingString:@".jpeg"]];
-                        cachedUrl = [NSURL fileURLWithPath: tmpFile];
-
-                        if([fileManager fileExistsAtPath:tmpFile]) {
-                            [fileManager removeItemAtPath:tmpFile error:nil];
+            NSString *fileName = url.lastPathComponent;
+            NSString *extension = fileName.pathExtension;
+            NSURL *cachedURL;
+            if ([extension isEqualToString:@"pvt"]) {
+                NSArray *children = [fileManager contentsOfDirectoryAtURL:url includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:nil];
+                if (self.allowCompression) {
+                    for (NSURL *child in children) {
+                        if (UTTypeConformsTo(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, CFBridgingRetain(child.pathExtension), NULL), kUTTypeImage)) {
+                            NSData *raw = [NSData dataWithContentsOfURL:child];
+                            NSData *jpg = UIImageJPEGRepresentation([UIImage imageWithData:raw], 0.8);
+                            NSString *name = fileName.stringByDeletingPathExtension;
+                            NSString *target = [NSTemporaryDirectory() stringByAppendingPathComponent:[name stringByAppendingString:@".jpeg"]];
+                            cachedURL = [NSURL fileURLWithPath:target];
+                            if ([fileManager fileExistsAtPath:target]) {
+                                [fileManager removeItemAtPath:target error:nil];
+                            }
+                            if ([fileManager createFileAtPath:target contents:jpg attributes:nil]) {
+                                [urls addObject:cachedURL];
+                            }
                         }
-                        
-                        if([fileManager createFileAtPath:tmpFile contents:data attributes:nil]) {
-                            filename = tmpFile;
-                        } else {
-                            Log("%@ Error while caching picked Live photo", self);
+                    }
+                } else {
+                    for (NSURL *child in children) {
+                        if (UTTypeConformsTo(UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, CFBridgingRetain(child.pathExtension), NULL), kUTTypeImage)) {
+                            NSString *target = [NSTemporaryDirectory() stringByAppendingPathComponent:child.lastPathComponent];
+                            if ([fileManager fileExistsAtPath:target]) {
+                                [fileManager removeItemAtPath:target error:NULL];
+                            }
+                            cachedURL = [NSURL fileURLWithPath:target];
+                            if ([fileManager moveItemAtURL:child toURL:cachedURL error:nil]) {
+                                [urls addObject:cachedURL];
+                            }
                         }
-                        break;
                     }
                 }
+                dispatch_group_leave(self->_group);
             } else {
-                NSString * cachedFile = [NSTemporaryDirectory() stringByAppendingPathComponent:filename];
-                
-                if([fileManager fileExistsAtPath:cachedFile]) {
+                NSString *cachedFile = [NSTemporaryDirectory() stringByAppendingPathComponent:fileName];
+                if ([fileManager fileExistsAtPath:cachedFile]) {
                     [fileManager removeItemAtPath:cachedFile error:NULL];
                 }
-                
-                cachedUrl = [NSURL fileURLWithPath: cachedFile];
-                
-                NSError *copyError;
-                [fileManager moveItemAtURL: url
-                                     toURL: cachedUrl
-                                     error: &copyError];
-                
-                if (copyError) {
-                    Log("%@ Error while caching picked file: %@", self, copyError);
-                    return;
+                cachedURL = [NSURL fileURLWithPath:cachedFile];
+                if ([fileManager moveItemAtURL:url toURL:cachedURL error:nil]) {
+                    [urls addObject:cachedURL];
                 }
+                dispatch_group_leave(self->_group);
             }
-            
-            
-            [urls addObject:cachedUrl];
-            dispatch_group_leave(self->_group);
         }];
     }
-    
-    dispatch_group_notify(_group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0),^{
+    dispatch_group_notify(_group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         self->_group = nil;
-        if(self->_eventSink != nil) {
+        if (self->_eventSink != nil) {
             self->_eventSink([NSNumber numberWithBool:NO]);
         }
-        
-        if(blockError) {
+        if (blockError) {
             self->_result([FlutterError errorWithCode:@"file_picker_error"
-                                        message:@"Temporary file could not be created"
-                                        details:blockError.description]);
+                                              message:@"Temporary file could not be created"
+                                              details:blockError.description]);
             self->_result = nil;
             return;
         }
