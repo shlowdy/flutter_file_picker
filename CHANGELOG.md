@@ -1,3 +1,32 @@
+## 5.3.0
+### Android
+Updates Gradle to version 7.5
+Adds the namespace property for compatibility with Gradle 8
+
+## 5.2.11
+### Desktop (Windows)
+Updates dependencies, including win32 bump to 4.1.3 ([#1255](https://github.com/miguelpruivo/flutter_file_picker/issues/1255)).
+
+## 5.2.10
+### Desktop (Windows)
+Fixes the bug that the result of the save-file dialog was incorrect when it was invoked with a long default file name but the user selected a file with a much short file name ([#1257](https://github.com/miguelpruivo/flutter_file_picker/issues/1257)).
+
+## 5.2.9
+#### General
+Fixes the errors `Type 'Uint8List' not found` and `'Uint8List' isn't a type` ([#1260](https://github.com/miguelpruivo/flutter_file_picker/issues/1260)). Thank you @miguelslemos!
+
+## 5.2.8
+
+### Desktop (Windows)
+Fixes the bug that the current directory sometimes changed after the user picked a file. Now, after the dialog is closed, the current directory is automatically restored to its original value even if the user changed the directory while searching for files ([#1254](https://github.com/miguelpruivo/flutter_file_picker/issues/1254)). Thank you @Tokenyet!
+
+### Desktop (Linux)
+Fixes the behavior of the `saveFile()` dialog on Ubuntu/Kubuntu. This fix should have been committed in the previous version _5.2.7_ but was forgotten. Now, when the user selects an already existing file, then Ubuntu prompts the user to confirm overwriting this file. This change finally makes the dialog behave the same on all desktop platforms (macOS, Linux, and Windows) ([#989](https://github.com/miguelpruivo/flutter_file_picker/issues/989)).
+    
+## 5.2.7
+### Desktop (Windows)
+Fixes the behavior of the `saveFile()` dialog on Windows. Now, when the user selects an already existing file, then Windows prompts the user to confirm overwriting this file. This change makes the dialog behave the same on all desktop platforms (macOS, Linux, and Windows). Previously, Windows would not have asked the user for confirmation ([#989](https://github.com/miguelpruivo/flutter_file_picker/issues/989)).
+
 ## 5.2.6
 ### Web
 - Increase time to wait on js result
